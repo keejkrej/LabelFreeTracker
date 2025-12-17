@@ -13,11 +13,13 @@ from torch.utils.data import Dataset
 class MicroscopyPatchDataset(Dataset):
     """Dataset that loads paired transmitted light / fluorescence patches.
 
+    Uses random cropping - one random patch per image pair per access.
+    This provides more variety across epochs compared to fixed tiling.
+
     Args:
         image_pairs: List of (transmitted_light_path, fluorescence_path) tuples
         patch_size: (Z, Y, X) patch dimensions
         augment: Whether to apply data augmentation
-        leak_empty_fraction: Fraction of empty patches to include
     """
 
     def __init__(
@@ -25,43 +27,16 @@ class MicroscopyPatchDataset(Dataset):
         image_pairs: List[Tuple[Path, Path]],
         patch_size: Tuple[int, int, int],
         augment: bool = False,
-        leak_empty_fraction: float = 0.05,
     ):
         self.image_pairs = image_pairs
         self.patch_size = patch_size
         self.augment = augment
-        self.leak_empty_fraction = leak_empty_fraction
-
-        self.patches: List[Tuple[int, int, int, int]] = []
-        self._index_patches()
-
-    def _index_patches(self) -> None:
-        """Index all valid patch locations across all image pairs."""
-        pz, py, px = self.patch_size
-
-        for pair_idx, (tl_path, fl_path) in enumerate(self.image_pairs):
-            tl_image = tifffile.imread(tl_path)
-            if tl_image.ndim == 2:
-                tl_image = tl_image[np.newaxis, ...]
-
-            z_dim, y_dim, x_dim = tl_image.shape
-
-            patch_idx = 0
-            for x_start in range(0, x_dim - px + 1, px):
-                for y_start in range(0, y_dim - py + 1, py):
-                    z_offset_max = max(0, z_dim % pz)
-                    z_offset = patch_idx % (z_offset_max + 1)
-                    patch_idx += 1
-
-                    for z_start in range(z_offset, z_dim - pz + 1, pz):
-                        self.patches.append((pair_idx, z_start, y_start, x_start))
 
     def __len__(self) -> int:
-        return len(self.patches)
+        return len(self.image_pairs)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        pair_idx, z_start, y_start, x_start = self.patches[idx]
-        tl_path, fl_path = self.image_pairs[pair_idx]
+        tl_path, fl_path = self.image_pairs[idx]
         pz, py, px = self.patch_size
 
         # Load images
@@ -71,6 +46,13 @@ class MicroscopyPatchDataset(Dataset):
         if tl_image.ndim == 2:
             tl_image = tl_image[np.newaxis, ...]
             fl_image = fl_image[np.newaxis, ...]
+
+        z_dim, y_dim, x_dim = tl_image.shape
+
+        # Random crop location
+        z_start = random.randint(0, max(0, z_dim - pz))
+        y_start = random.randint(0, max(0, y_dim - py))
+        x_start = random.randint(0, max(0, x_dim - px))
 
         # Extract patches
         tl_patch = tl_image[
