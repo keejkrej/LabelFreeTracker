@@ -79,6 +79,7 @@ def train(
     num_workers: int = 0,
     resume: Optional[Path] = None,
     verbose: bool = False,
+    mode: Optional[str] = None,
 ) -> None:
     """Train the LabelFree UNet model.
 
@@ -93,6 +94,7 @@ def train(
         seed: Random seed
         num_workers: DataLoader workers
         resume: Path to checkpoint to resume from
+        mode: "2d", "3d", or None for custom
         verbose: Enable verbose logging
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -245,6 +247,7 @@ def train(
             "optimizer_state_dict": optimizer.state_dict(),
             "train_loss": avg_train_loss,
             "val_loss": avg_val_loss,
+            "z_patch_size": patch_size[0],
         }
         torch.save(checkpoint, checkpoints_dir / f"checkpoint_epoch_{epoch + 1}.pt")
 
@@ -257,19 +260,23 @@ def train(
         # Save example predictions
         save_example_predictions(model, val_dataset, output_dir, epoch, device)
 
-    # Save final model and settings
-    torch.save(model.state_dict(), output_dir / "final_model.pt")
+    # Determine model filename based on mode
+    if mode == "2d":
+        model_filename = "model_2d.pt"
+    elif mode == "3d":
+        model_filename = "model_3d.pt"
+    else:
+        model_filename = "model.pt"
 
-    settings = {
-        "type": "cell_painting",
-        "patch_size_xyz": [patch_size[2], patch_size[1], patch_size[0]],
-        "framework": "pytorch",
+    # Save final model with z_patch_size embedded
+    final_checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "z_patch_size": patch_size[0],
     }
-    with open(output_dir / "settings.json", "w") as f:
-        json.dump(settings, f, indent=2)
+    torch.save(final_checkpoint, output_dir / model_filename)
 
     writer.close()
-    print(f"Training complete. Model saved to {output_dir}")
+    print(f"Training complete. Model saved to {output_dir / model_filename}")
 
 
 if __name__ == "__main__":

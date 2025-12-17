@@ -105,45 +105,38 @@ def predict_in_parts(
 def load_model(
     model_path: Path,
     device: torch.device,
-    z_patch_size: Optional[int] = None,
 ) -> tuple[torch.nn.Module, int]:
     """Load a trained model from checkpoint.
 
     Args:
-        model_path: Path to model checkpoint (.pt) or directory with settings.json
+        model_path: Path to model checkpoint (.pt file)
         device: Torch device
-        z_patch_size: Override Z patch size
 
     Returns:
         Tuple of (model, z_patch_size)
     """
-    # Try to load settings.json
-    if model_path.is_dir():
-        settings_path = model_path / "settings.json"
-        checkpoint_path = model_path / "final_model.pt"
-        if not checkpoint_path.exists():
-            checkpoint_path = model_path / "checkpoints" / "best_model.pt"
+    checkpoint = torch.load(model_path, map_location=device)
+
+    # Get z_patch_size from checkpoint, or infer from filename
+    if isinstance(checkpoint, dict) and "z_patch_size" in checkpoint:
+        z_size = checkpoint["z_patch_size"]
+        logger.info(f"Loaded Z patch size from checkpoint: {z_size}")
+    elif "model_2d" in model_path.stem:
+        z_size = 1
+        logger.info("Inferred 2D mode from filename (Z patch size: 1)")
+    elif "model_3d" in model_path.stem:
+        z_size = 16
+        logger.info("Inferred 3D mode from filename (Z patch size: 16)")
     else:
-        settings_path = model_path.parent / "settings.json"
-        checkpoint_path = model_path
-
-    z_size = z_patch_size or 16
-    if settings_path.exists():
-        with open(settings_path) as f:
-            settings = json.load(f)
-        if "patch_size_xyz" in settings:
-            z_size = settings["patch_size_xyz"][2]
-            print(f"Loaded Z patch size from settings: {z_size}")
-
-    if z_patch_size is not None:
-        z_size = z_patch_size
-        print(f"Using provided Z patch size: {z_size}")
+        raise ValueError(
+            f"Cannot determine mode from model file '{model_path.name}'. "
+            "Use model_2d.pt or model_3d.pt, or a checkpoint with embedded z_patch_size."
+        )
 
     # Create and load model
     model = LabelFreeUNet(in_channels=1, out_channels=1, z_patch_size=z_size)
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    if "model_state_dict" in checkpoint:
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
     else:
         model.load_state_dict(checkpoint)
@@ -158,7 +151,6 @@ def predict(
     input_path: Path,
     model_path: Path,
     output_path: Path,
-    z_patch_size: Optional[int] = None,
     device: Optional[torch.device] = None,
     verbose: bool = False,
 ) -> None:
@@ -166,9 +158,8 @@ def predict(
 
     Args:
         input_path: Path to input TIFF image
-        model_path: Path to model checkpoint
+        model_path: Path to model checkpoint (model_2d.pt or model_3d.pt)
         output_path: Path to save output TIFF
-        z_patch_size: Override Z patch size
         device: Torch device (auto-detected if None)
         verbose: Enable verbose logging
     """
@@ -179,13 +170,14 @@ def predict(
     if verbose:
         print(f"Using device: {device}")
 
-    # Load model
+    # Load model (z_patch_size is inferred from checkpoint or filename)
     logger.debug(f"Loading model from {model_path}...")
-    model, z_size = load_model(model_path, device, z_patch_size)
+    model, z_size = load_model(model_path, device)
     logger.info(f"Loaded model with Z patch size: {z_size}")
     
     if verbose:
         print(f"Loading model from {model_path}...")
+        print(f"Model Z patch size: {z_size}")
 
     # Load image
     logger.debug(f"Loading image from {input_path}...")
@@ -203,6 +195,18 @@ def predict(
     
     if verbose:
         print(f"Image shape: {image.shape}")
+
+    # Validate image dimensions match model mode
+    if z_size == 1 and image.shape[0] > 1:
+        raise ValueError(
+            f"Model is 2D (model_2d.pt) but input image has {image.shape[0]} Z-slices. "
+            "Use a 2D image or a model trained with --3d."
+        )
+    if z_size > 1 and image.shape[0] < z_size:
+        raise ValueError(
+            f"Model is 3D (model_3d.pt) but input image has only {image.shape[0]} Z-slices "
+            f"(need at least {z_size}). Use a Z-stack or a model trained with --2d."
+        )
 
     # Preprocess
     logger.debug("Preprocessing image...")

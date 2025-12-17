@@ -80,7 +80,7 @@ def train_command(
         "16,256,256",
         "--patch-size",
         "-p",
-        help="Patch size as Z,Y,X",
+        help="Patch size as Z,Y,X (ignored if --2d or --3d is set)",
     ),
     lr: float = typer.Option(
         1e-4,
@@ -117,6 +117,16 @@ def train_command(
         file_okay=True,
         dir_okay=False,
     ),
+    mode_2d: bool = typer.Option(
+        False,
+        "--2d",
+        help="2D mode: auto-set patch size to 1,256,256, output to model_2d.pt",
+    ),
+    mode_3d: bool = typer.Option(
+        False,
+        "--3d",
+        help="3D mode: auto-set patch size to 16,256,256, output to model_3d.pt",
+    ),
     info: bool = typer.Option(
         False,
         "--info",
@@ -134,14 +144,27 @@ def train_command(
     logger.info("Starting LabelFree training")
     logger.debug(f"Parameters: data_dir={data_dir}, output_dir={output_dir}")
     logger.debug(f"Training config: epochs={epochs}, batch_size={batch_size}, lr={lr}")
-    logger.debug(f"Patch size: {patch_size}, validation_split={validation_split}")
     
     try:
-        patch_size_tuple = tuple(map(int, patch_size.split(",")))
-        if len(patch_size_tuple) != 3:
-            raise ValueError("Patch size must have 3 dimensions: Z,Y,X")
+        # Handle --2d / --3d mode flags
+        if mode_2d and mode_3d:
+            raise ValueError("Cannot use both --2d and --3d flags")
         
-        logger.debug(f"Parsed patch size: {patch_size_tuple}")
+        if mode_2d:
+            patch_size_tuple = (1, 256, 256)
+            mode = "2d"
+            logger.info("2D mode: using patch size (1, 256, 256)")
+        elif mode_3d:
+            patch_size_tuple = (16, 256, 256)
+            mode = "3d"
+            logger.info("3D mode: using patch size (16, 256, 256)")
+        else:
+            patch_size_tuple = tuple(map(int, patch_size.split(",")))
+            if len(patch_size_tuple) != 3:
+                raise ValueError("Patch size must have 3 dimensions: Z,Y,X")
+            mode = None  # custom mode
+        
+        logger.debug(f"Patch size: {patch_size_tuple}, mode: {mode}")
 
         train(
             data_dir=data_dir,
@@ -154,7 +177,8 @@ def train_command(
             seed=seed,
             num_workers=num_workers,
             resume=resume,
-            verbose=info or debug,  # Pass verbose flag to train function
+            verbose=info or debug,
+            mode=mode,  # Pass mode for model filename
         )
         
         typer.echo(f"✓ Training complete. Model saved to {output_dir}", color=typer.colors.GREEN)
@@ -172,30 +196,29 @@ def train_command(
 
 @app.command("predict")
 def predict_command(
-    input_path: Path = typer.Argument(
+    input_path: Path = typer.Option(
         ...,
-        help="Path to input TIFF image (3D: Z, Y, X)",
+        "--input",
+        "-i",
+        help="Path to input TIFF image",
         exists=True,
         file_okay=True,
         dir_okay=False,
     ),
-    model_path: Path = typer.Argument(
+    model_path: Path = typer.Option(
         ...,
-        help="Path to trained model (.pt file or directory)",
+        "--model",
+        "-m",
+        help="Path to trained model (model_2d.pt or model_3d.pt)",
         exists=True,
         file_okay=True,
-        dir_okay=True,
+        dir_okay=False,
     ),
-    output_path: Path = typer.Argument(
+    output_path: Path = typer.Option(
         ...,
+        "--output",
+        "-o",
         help="Path to save output TIFF image",
-    ),
-    z_patch_size: Optional[int] = typer.Option(
-        None,
-        "--z-patch-size",
-        "-z",
-        help="Override Z patch size from settings",
-        min=1,
     ),
     cpu: bool = typer.Option(
         False,
@@ -229,9 +252,8 @@ def predict_command(
             input_path=input_path,
             model_path=model_path,
             output_path=output_path,
-            z_patch_size=z_patch_size,
             device=device,
-            verbose=info or debug,  # Pass verbose flag to predict function
+            verbose=info or debug,
         )
         
         typer.echo(f"✓ Prediction complete. Output saved to {output_path}", color=typer.colors.GREEN)
