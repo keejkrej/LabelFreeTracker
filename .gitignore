@@ -130,3 +130,15 @@ dmypy.json
 
 # IntelliJ / PyCharm
 .idea/
+
+# Training data and output
+Microscopy images/
+training_output/
+
+# Model checkpoints
+*.pt
+*.pth
+
+# TensorBoard logs
+runs/
+tensorboard/
