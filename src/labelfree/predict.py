@@ -153,6 +153,8 @@ def predict(
     output_path: Path,
     device: Optional[torch.device] = None,
     verbose: bool = False,
+    mode_2d: bool = False,
+    mode_3d: bool = False,
 ) -> None:
     """Run prediction on an input image.
 
@@ -162,6 +164,8 @@ def predict(
         output_path: Path to save output TIFF
         device: Torch device (auto-detected if None)
         verbose: Enable verbose logging
+        mode_2d: If True, require model to be 2D (z_patch_size=1)
+        mode_3d: If True, require model to be 3D (z_patch_size>1)
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -178,6 +182,18 @@ def predict(
     if verbose:
         print(f"Loading model from {model_path}...")
         print(f"Model Z patch size: {z_size}")
+
+    # Validate model mode if --2d or --3d flag was specified
+    if mode_2d and z_size != 1:
+        raise ValueError(
+            f"--2d flag specified but model is 3D (z_patch_size={z_size}). "
+            "Use a 2D model or remove the --2d flag."
+        )
+    if mode_3d and z_size == 1:
+        raise ValueError(
+            "--3d flag specified but model is 2D (z_patch_size=1). "
+            "Use a 3D model or remove the --3d flag."
+        )
 
     # Load image
     logger.debug(f"Loading image from {input_path}...")

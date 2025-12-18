@@ -99,8 +99,8 @@ def find_image_pairs(data_dir: Path) -> List[Tuple[Path, Path]]:
     Expects directory structure:
         data_dir/
             position1/
-                *c1.tif  (transmitted light)
-                *c2.tif  (fluorescence)
+                *c1.tif  (fluorescence - target)
+                *c2.tif  (phase contrast - input)
             position2/
                 ...
 
@@ -108,7 +108,7 @@ def find_image_pairs(data_dir: Path) -> List[Tuple[Path, Path]]:
         data_dir: Path to root data directory
 
     Returns:
-        List of (transmitted_light_path, fluorescence_path) tuples
+        List of (phase_contrast_path, fluorescence_path) tuples
     """
     pairs = []
 
@@ -120,7 +120,7 @@ def find_image_pairs(data_dir: Path) -> List[Tuple[Path, Path]]:
         for c1_path in c1_files:
             c2_path = c1_path.parent / c1_path.name.replace("c1.tif", "c2.tif")
             if c2_path.exists():
-                pairs.append((c1_path, c2_path))
+                pairs.append((c2_path, c1_path))  # c2=phase contrast (input), c1=fluorescence (target)
 
     return pairs
 

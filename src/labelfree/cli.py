@@ -225,6 +225,16 @@ def predict_command(
         "--cpu",
         help="Force CPU inference",
     ),
+    mode_2d: bool = typer.Option(
+        False,
+        "--2d",
+        help="Require 2D model (error if model is 3D)",
+    ),
+    mode_3d: bool = typer.Option(
+        False,
+        "--3d",
+        help="Require 3D model (error if model is 2D)",
+    ),
     info: bool = typer.Option(
         False,
         "--info",
@@ -245,6 +255,9 @@ def predict_command(
     logger.debug(f"Output: {output_path}")
     
     try:
+        if mode_2d and mode_3d:
+            raise ValueError("Cannot use both --2d and --3d flags")
+        
         device = torch.device("cpu") if cpu else None
         logger.debug(f"Using device: {device or 'auto-detected'}")
         
@@ -254,6 +267,8 @@ def predict_command(
             output_path=output_path,
             device=device,
             verbose=info or debug,
+            mode_2d=mode_2d,
+            mode_3d=mode_3d,
         )
         
         typer.echo(f"✓ Prediction complete. Output saved to {output_path}", color=typer.colors.GREEN)
